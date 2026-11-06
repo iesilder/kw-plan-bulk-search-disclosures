@@ -75,6 +75,7 @@
       <div>
         <details class="panel" open>
           <summary>선택한 회사 <span id="selection-count">0</span>개</summary>
+          <button id="clear-selection" class="compact-action" type="button" aria-controls="selection-list" disabled>전체 지우기</button>
           <ul id="selection-list"></ul>
           <form id="disclosure-search" action="https://dart.fss.or.kr/dsab007/main.do" method="get" target="_blank" rel="noopener">
             <input type="hidden" name="option" value="corp">
@@ -521,6 +522,7 @@
     function renderSelection() {
       clearBatchIfChanged();
       byId('selection-count').textContent = selected.size;
+      byId('clear-selection').disabled = selected.size === 0;
       byId('open-selected').disabled = selected.size === 0;
       byId('save-group').disabled = selected.size === 0 || !canEditLists();
       for (const control of document.querySelectorAll('.company-choice')) {
@@ -624,6 +626,11 @@
         batch.pending.delete(code);
       }
       renderBatchStatus();
+    });
+
+    byId('clear-selection').addEventListener('click', () => {
+      selected.clear();
+      renderSelection();
     });
 
     byId('select-all-favorites').addEventListener('change', (event) => {
