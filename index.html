@@ -42,7 +42,6 @@
     a { color: #164da4; }
     :focus-visible { outline: 3px solid #246bd0; outline-offset: 2px; }
     #group-form { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 0.4rem; align-items: end; margin: 0.6rem 0; }
-    #group-form[hidden] { display: none; }
     #group-form label { grid-column: 1 / -1; }
     #group-form input { margin: 0; }
     #group-form button { align-self: center; }
@@ -137,7 +136,7 @@
     const sharedEndpoint = 'https://dart-search-shared-list.tsyoo227853.chatgpt.site/state';
     const usesSharedLists = location.origin === 'https://iesilder.github.io' &&
       ['/kw-plan-bulk-search-disclosures/', '/kw-plan-bulk-search-disclosures/index.html'].includes(location.pathname);
-    const editToken = usesSharedLists ? /^#edit=([A-Za-z0-9_-]{43})$/.exec(location.hash)?.[1] : undefined;
+    let editToken = null;
     let sharedReady = false;
     let pendingSave = null;
     let savingShared = false;
@@ -269,12 +268,16 @@
       control.hidden = !action;
     }
 
+    async function readSharedLists() {
+      const response = await fetch(sharedEndpoint, { cache: 'no-store', credentials: 'omit', signal: AbortSignal.timeout(12000) });
+      if (!response.ok) throw new Error('Shared load failed');
+      return response.json();
+    }
+
     async function loadSharedLists() {
       showSharedStatus('공유 즐겨찾기와 그룹을 불러오는 중입니다.');
       try {
-        const response = await fetch(sharedEndpoint, { cache: 'no-store', credentials: 'omit', signal: AbortSignal.timeout(12000) });
-        if (!response.ok) throw new Error('Shared load failed');
-        const { state } = await response.json();
+        const { state, editToken: issuedToken } = await readSharedLists();
         if (state !== null && (!Array.isArray(state?.favorites) || !Array.isArray(state?.groups))) {
           throw new Error('Invalid shared list');
         }
@@ -282,26 +285,33 @@
           applySaved(state);
           cacheSaved(savedSnapshot());
         }
-        sharedReady = true;
+        editToken = typeof issuedToken === 'string' && issuedToken ? issuedToken : null;
+        sharedReady = Boolean(editToken);
         byId('group-name').disabled = !canEditLists();
         renderSearch();
         renderFavorites();
         renderSelection();
         renderGroups();
-        if (state === null) {
-          showSharedStatus(
-            '아직 공유 저장된 목록이 없습니다. 이 브라우저의 목록을 표시합니다.' +
-            (editToken ? '' : ' 수정하려면 편집 링크로 열어 주세요.'),
-            editToken ? '현재 목록 공유 저장' : '',
-          );
+        if (!sharedReady) {
+          showSharedStatus('공유 목록을 편집할 수 없습니다. 다시 불러와 주세요.', '다시 불러오기');
+        } else if (state === null) {
+          showSharedStatus('아직 공유 저장된 목록이 없습니다. 이 브라우저의 목록을 표시합니다.', '현재 목록 공유 저장');
         } else {
-          showSharedStatus(editToken
-            ? '즐겨찾기와 그룹의 변경사항은 모든 방문자에게 공유됩니다.'
-            : '마지막으로 공유 저장된 즐겨찾기와 그룹을 표시합니다. 수정하려면 편집 링크로 열어 주세요.');
+          showSharedStatus('즐겨찾기와 그룹의 변경사항은 자동으로 저장되며 모든 방문자에게 공유됩니다.');
         }
       } catch {
         showSharedStatus('공유 목록을 불러오지 못했습니다. 이 브라우저의 목록을 표시합니다.', '다시 불러오기');
       }
+    }
+
+    function writeSharedLists(state) {
+      return fetch(sharedEndpoint, {
+        method: 'PUT',
+        credentials: 'omit',
+        signal: AbortSignal.timeout(12000),
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${editToken}` },
+        body: JSON.stringify(state),
+      });
     }
 
     async function flushSharedSaves() {
@@ -313,13 +323,13 @@
           const state = pendingSave;
           pendingSave = null;
           try {
-            const response = await fetch(sharedEndpoint, {
-              method: 'PUT',
-              credentials: 'omit',
-              signal: AbortSignal.timeout(12000),
-              headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${editToken}` },
-              body: JSON.stringify(state),
-            });
+            let response = await writeSharedLists(state);
+            if (response.status === 401 || response.status === 403) {
+              const { editToken: issuedToken } = await readSharedLists();
+              if (typeof issuedToken !== 'string' || !issuedToken) throw new Error('Shared session could not be renewed');
+              editToken = issuedToken;
+              response = await writeSharedLists(state);
+            }
             if (!response.ok) throw new Error('Shared save failed');
           } catch (error) {
             pendingSave ??= state;
@@ -401,7 +411,6 @@
       description.append(code);
       label.append(checkbox, description);
       item.append(label);
-      if (usesSharedLists && !editToken) return item;
       const favoriteButton = button('', () => {
         if (!canEditLists()) return;
         if (favorites.has(company.code)) {
@@ -574,16 +583,14 @@
           const added = selected.size - before;
           byId('notice').textContent = added ? `그룹에서 ${added}개 회사를 추가했습니다.` : '그룹의 회사가 모두 선택되어 있습니다.';
         }));
-        if (!usesSharedLists || editToken) {
-          const remove = button('삭제', () => {
-            if (!canEditLists()) return;
-            groups.delete(name);
-            save(`${name} 그룹을 삭제했습니다.`);
-            renderGroups();
-          });
-          remove.disabled = !canEditLists();
-          actions.append(remove);
-        }
+        const remove = button('삭제', () => {
+          if (!canEditLists()) return;
+          groups.delete(name);
+          save(`${name} 그룹을 삭제했습니다.`);
+          renderGroups();
+        });
+        remove.disabled = !canEditLists();
+        actions.append(remove);
         item.append(description, actions);
         return item;
       });
@@ -681,7 +688,6 @@
     renderSelection();
     renderGroups();
     if (usesSharedLists) {
-      byId('group-form').hidden = !editToken;
       byId('group-name').disabled = true;
       byId('shared-list-controls').hidden = false;
       byId('shared-list-action').addEventListener('click', () => {
