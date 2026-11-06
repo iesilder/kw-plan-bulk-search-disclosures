@@ -16,15 +16,11 @@
     .hint { margin: 0.45rem 0; font-size: 0.9rem; }
     .layout { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 1rem; align-items: start; }
     input, button { font: inherit; }
-    input::file-selector-button { font: inherit; }
     input[type="text"], input[type="search"] { width: 100%; padding: 0.45rem 0.65rem; border: 1px solid #8293aa; border-radius: 0.4rem; }
-    input[type="file"] { display: block; width: 100%; margin-top: 0.4rem; }
     label { font-weight: 600; }
     label + input { margin-top: 0.3rem; }
-    details { margin-bottom: 0.75rem; }
-    summary { cursor: pointer; color: #164da4; }
     .panel { margin-bottom: 1rem; padding: 1.1rem; border: 1px solid #d5dfec; border-radius: 0.8rem; background: #fff; }
-    .panel > summary { color: #142238; font-size: 1.15rem; font-weight: 700; }
+    .panel > summary { cursor: pointer; color: #142238; font-size: 1.15rem; font-weight: 700; }
     .panel[open] > summary { margin-bottom: 0.75rem; }
     ul { padding: 0; margin: 0; list-style: none; }
     #company-results, #favorite-list { max-height: 22rem; overflow-y: auto; }
@@ -63,13 +59,6 @@
       <div>
         <details class="panel" open>
           <summary>회사 찾기</summary>
-          <details>
-            <summary>다른 회사 목록 불러오기</summary>
-            <p class="hint"><a href="https://opendart.fss.or.kr/guide/detail.do?apiGrpCd=DS001&amp;apiId=2019018" target="_blank" rel="noopener">OpenDART</a>에서 받은 ZIP의 압축을 풀고 <strong>CORPCODE.xml</strong>을 선택하세요. 이 페이지에서 파일을 읽습니다.</p>
-            <label for="catalog-file">회사 고유번호 파일</label>
-            <input id="catalog-file" type="file" accept=".xml,application/xml,text/xml">
-            <p id="catalog-status" class="hint" role="status"></p>
-          </details>
           <label for="company-query">회사명 또는 종목코드</label>
           <input id="company-query" type="search" placeholder="예: 투자증권" autocomplete="off">
           <p id="search-status" class="hint" role="status"></p>
@@ -201,8 +190,8 @@
       ['00380836', '흥국증권'],
     ]);
     const bundledCompanies = typeof dartCompanyRows === 'undefined' ? null : dartCompanyRows.map(([code, name, stock]) => ({ code, name, stock }));
-    let catalog = bundledCompanies ?? starterCompanies;
-    let searchNames = indexNames(catalog);
+    const catalog = bundledCompanies ?? starterCompanies;
+    const searchNames = indexNames(catalog);
 
     function companyMap(companies) {
       const map = new Map();
@@ -471,9 +460,7 @@
           if (results.length < 50) results.push(company);
         }
       }
-      let source = '불러온 회사 목록';
-      if (catalog === starterCompanies) source = '목록 파일 없음 · 예시 회사';
-      else if (catalog === bundledCompanies) source = `기본 회사 목록 (${dartCompanyCatalogDate})`;
+      const source = bundledCompanies ? `기본 회사 목록 (${dartCompanyCatalogDate})` : '목록 파일 없음 · 예시 회사';
       byId('search-status').textContent = `${source} ${catalog.length.toLocaleString()}개 · 일치 ${matchCount.toLocaleString()}개` +
         (matchCount > 50 ? ' · 처음 50개 표시' : '');
       const results = query ? [...exact, ...partial] : catalog;
@@ -652,32 +639,6 @@
       clearBatchIfChanged();
       for (const link of document.querySelectorAll('.company-link')) {
         link.href = disclosureUrl(selected.get(link.dataset.code));
-      }
-    });
-
-    byId('catalog-file').addEventListener('change', async (event) => {
-      const [file] = event.target.files;
-      if (!file) return;
-      const status = byId('catalog-status');
-      status.textContent = '회사 목록을 읽는 중입니다.';
-      try {
-        const xml = new DOMParser().parseFromString(await file.text(), 'application/xml');
-        if (event.target.files[0] !== file) return;
-        if (xml.querySelector('parsererror')) throw new Error('Invalid XML');
-        const companies = [...xml.querySelectorAll('result > list')].map((row) => ({
-          code: row.querySelector('corp_code')?.textContent.trim(),
-          name: row.querySelector('corp_name')?.textContent.trim(),
-          stock: row.querySelector('stock_code')?.textContent.trim(),
-        }));
-        const imported = companyMap(companies);
-        if (!imported.size) throw new Error('Missing companies');
-        catalog = [...imported.values()];
-        searchNames = indexNames(catalog);
-        renderSearch();
-        status.textContent = `${catalog.length.toLocaleString()}개 회사를 불러왔습니다.`;
-      } catch {
-        if (event.target.files[0] !== file) return;
-        status.textContent = '압축을 푼 OpenDART CORPCODE.xml 파일인지 확인해 주세요.';
       }
     });
 
