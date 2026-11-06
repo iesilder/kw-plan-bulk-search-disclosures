@@ -42,6 +42,7 @@
     a { color: #164da4; }
     :focus-visible { outline: 3px solid #246bd0; outline-offset: 2px; }
     #group-form { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 0.4rem; align-items: end; margin: 0.6rem 0; }
+    #group-form[hidden] { display: none; }
     #group-form label { grid-column: 1 / -1; }
     #group-form input { margin: 0; }
     #group-form button { align-self: center; }
@@ -54,6 +55,10 @@
     <header>
       <h1>DART 공시 검색</h1>
       <p>회사를 골라 DART 공식 검색 결과를 회사별 새 탭에서 엽니다.</p>
+      <div id="shared-list-controls" hidden>
+        <p id="shared-list-status" class="hint" role="status"></p>
+        <button id="shared-list-action" class="compact-action" type="button" hidden></button>
+      </div>
     </header>
     <div class="layout">
       <div>
@@ -129,6 +134,13 @@
     ];
     const byId = (id) => document.getElementById(id);
     const storageKey = 'dart-search-v3-saved';
+    const sharedEndpoint = 'https://dart-search-shared-list.tsyoo227853.chatgpt.site/state';
+    const usesSharedLists = location.origin === 'https://iesilder.github.io' &&
+      ['/kw-plan-bulk-search-disclosures/', '/kw-plan-bulk-search-disclosures/index.html'].includes(location.pathname);
+    const editToken = usesSharedLists ? /^#edit=([A-Za-z0-9_-]{43})$/.exec(location.hash)?.[1] : undefined;
+    let sharedReady = false;
+    let pendingSave = null;
+    let savingShared = false;
     const selected = new Map();
     // KOFIA securities members with a verified code in the bundled DART snapshot.
     const securitiesNames = new Map([
@@ -212,27 +224,129 @@
       }
     }
 
-    const saved = loadSaved();
-    const favorites = companyMap(saved.favorites);
+    const favorites = new Map();
     const groups = new Map();
-    let securitiesFavoritesSeeded = saved.securitiesFavoritesSeeded === true;
-    for (const group of Array.isArray(saved.groups) ? saved.groups : []) {
-      const companies = [...companyMap(group?.companies).values()];
-      if (typeof group?.name === 'string' && group.name.trim() && companies.length) {
-        groups.set(group.name.trim(), companies);
+    let securitiesFavoritesSeeded = false;
+
+    function applySaved(saved) {
+      favorites.clear();
+      groups.clear();
+      securitiesFavoritesSeeded = saved.securitiesFavoritesSeeded === true;
+      for (const [code, company] of companyMap(saved.favorites)) favorites.set(code, company);
+      for (const group of Array.isArray(saved.groups) ? saved.groups : []) {
+        const companies = [...companyMap(group?.companies).values()];
+        if (typeof group?.name === 'string' && group.name.trim() && companies.length) {
+          groups.set(group.name.trim(), companies);
+        }
       }
     }
 
-    function save(message = '') {
+    function savedSnapshot() {
+      return {
+        favorites: [...favorites.values()],
+        groups: [...groups].map(([name, companies]) => ({ name, companies })),
+        securitiesFavoritesSeeded,
+      };
+    }
+
+    function cacheSaved(state) {
       try {
-        localStorage.setItem(storageKey, JSON.stringify({
-          favorites: [...favorites.values()],
-          groups: [...groups].map(([name, companies]) => ({ name, companies })),
-          securitiesFavoritesSeeded,
-        }));
-        byId('notice').textContent = message;
+        localStorage.setItem(storageKey, JSON.stringify(state));
+        return true;
       } catch {
-        byId('notice').textContent = '브라우저에 저장할 수 없어 현재 탭에서만 적용됩니다.';
+        return false;
+      }
+    }
+
+    function canEditLists() {
+      return !usesSharedLists || (Boolean(editToken) && sharedReady);
+    }
+
+    function showSharedStatus(message, action = '') {
+      byId('shared-list-status').textContent = message;
+      const control = byId('shared-list-action');
+      control.textContent = action;
+      control.hidden = !action;
+    }
+
+    async function loadSharedLists() {
+      showSharedStatus('공유 즐겨찾기와 그룹을 불러오는 중입니다.');
+      try {
+        const response = await fetch(sharedEndpoint, { cache: 'no-store', credentials: 'omit', signal: AbortSignal.timeout(12000) });
+        if (!response.ok) throw new Error('Shared load failed');
+        const { state } = await response.json();
+        if (state !== null && (!Array.isArray(state?.favorites) || !Array.isArray(state?.groups))) {
+          throw new Error('Invalid shared list');
+        }
+        if (state !== null) {
+          applySaved(state);
+          cacheSaved(savedSnapshot());
+        }
+        sharedReady = true;
+        byId('group-name').disabled = !canEditLists();
+        renderSearch();
+        renderFavorites();
+        renderSelection();
+        renderGroups();
+        if (state === null) {
+          showSharedStatus(
+            '아직 공유 저장된 목록이 없습니다. 이 브라우저의 목록을 표시합니다.' +
+            (editToken ? '' : ' 수정하려면 편집 링크로 열어 주세요.'),
+            editToken ? '현재 목록 공유 저장' : '',
+          );
+        } else {
+          showSharedStatus(editToken
+            ? '즐겨찾기와 그룹의 변경사항은 모든 방문자에게 공유됩니다.'
+            : '마지막으로 공유 저장된 즐겨찾기와 그룹을 표시합니다. 수정하려면 편집 링크로 열어 주세요.');
+        }
+      } catch {
+        showSharedStatus('공유 목록을 불러오지 못했습니다. 이 브라우저의 목록을 표시합니다.', '다시 불러오기');
+      }
+    }
+
+    async function flushSharedSaves() {
+      if (savingShared || !pendingSave) return;
+      savingShared = true;
+      showSharedStatus('공유 목록에 저장하는 중입니다.');
+      try {
+        while (pendingSave) {
+          const state = pendingSave;
+          pendingSave = null;
+          try {
+            const response = await fetch(sharedEndpoint, {
+              method: 'PUT',
+              credentials: 'omit',
+              signal: AbortSignal.timeout(12000),
+              headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${editToken}` },
+              body: JSON.stringify(state),
+            });
+            if (!response.ok) throw new Error('Shared save failed');
+          } catch (error) {
+            pendingSave ??= state;
+            throw error;
+          }
+        }
+        showSharedStatus('공유 목록에 저장했습니다. 다른 방문자도 이 목록을 볼 수 있습니다.');
+      } catch {
+        showSharedStatus('공유 목록에 저장하지 못했습니다. 변경사항을 다시 저장할 수 있습니다.', '공유 저장 다시 시도');
+      } finally {
+        savingShared = false;
+      }
+    }
+
+    function queueSharedSave(state = savedSnapshot()) {
+      pendingSave = { ...state, securitiesFavoritesSeeded: true };
+      void flushSharedSaves();
+    }
+
+    function save(message = '') {
+      const state = savedSnapshot();
+      const cached = cacheSaved(state);
+      if (usesSharedLists && message && canEditLists()) {
+        byId('notice').textContent = '';
+        queueSharedSave(state);
+      } else {
+        byId('notice').textContent = cached ? message : '브라우저에 저장할 수 없어 현재 탭에서만 적용됩니다.';
       }
     }
 
@@ -286,7 +400,10 @@
       code.textContent = [company.stock, `DART ${company.code}`].filter(Boolean).join(' · ');
       description.append(code);
       label.append(checkbox, description);
+      item.append(label);
+      if (usesSharedLists && !editToken) return item;
       const favoriteButton = button('', () => {
+        if (!canEditLists()) return;
         if (favorites.has(company.code)) {
           favorites.delete(company.code);
           save(`${name}을(를) 즐겨찾기에서 제거했습니다.`);
@@ -301,8 +418,9 @@
       });
       favoriteButton.className = 'favorite-toggle compact-action';
       favoriteButton.dataset.code = company.code;
+      favoriteButton.disabled = !canEditLists();
       updateFavoriteButton(favoriteButton, company);
-      item.append(label, favoriteButton);
+      item.append(favoriteButton);
       return item;
     }
 
@@ -408,7 +526,7 @@
       clearBatchIfChanged();
       byId('selection-count').textContent = selected.size;
       byId('open-selected').disabled = selected.size === 0;
-      byId('save-group').disabled = selected.size === 0;
+      byId('save-group').disabled = selected.size === 0 || !canEditLists();
       for (const control of document.querySelectorAll('.company-choice')) {
         control.checked = selected.has(control.value);
       }
@@ -455,11 +573,17 @@
           renderSelection();
           const added = selected.size - before;
           byId('notice').textContent = added ? `그룹에서 ${added}개 회사를 추가했습니다.` : '그룹의 회사가 모두 선택되어 있습니다.';
-        }), button('삭제', () => {
-          groups.delete(name);
-          save(`${name} 그룹을 삭제했습니다.`);
-          renderGroups();
         }));
+        if (!usesSharedLists || editToken) {
+          const remove = button('삭제', () => {
+            if (!canEditLists()) return;
+            groups.delete(name);
+            save(`${name} 그룹을 삭제했습니다.`);
+            renderGroups();
+          });
+          remove.disabled = !canEditLists();
+          actions.append(remove);
+        }
         item.append(description, actions);
         return item;
       });
@@ -467,6 +591,7 @@
 
     byId('group-form').addEventListener('submit', (event) => {
       event.preventDefault();
+      if (!canEditLists()) return;
       const name = byId('group-name').value.trim();
       if (!name || !selected.size) return;
       if (groups.has(name)) {
@@ -549,11 +674,23 @@
       }
     });
 
+    applySaved(loadSaved());
     seedSecuritiesFavorites();
     renderSearch();
     renderFavorites();
     renderSelection();
     renderGroups();
+    if (usesSharedLists) {
+      byId('group-form').hidden = !editToken;
+      byId('group-name').disabled = true;
+      byId('shared-list-controls').hidden = false;
+      byId('shared-list-action').addEventListener('click', () => {
+        if (!sharedReady) void loadSharedLists();
+        else if (pendingSave) void flushSharedSaves();
+        else if (canEditLists()) queueSharedSave();
+      });
+      void loadSharedLists();
+    }
   </script>
 </body>
 </html>
