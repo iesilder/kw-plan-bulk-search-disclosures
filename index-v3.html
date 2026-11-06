@@ -1,0 +1,559 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>DART 공시 검색</title>
+  <link rel="stylesheet" crossorigin="anonymous" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+  <style>
+    * { box-sizing: border-box; }
+    body { margin: 0; background: #f3f6fa; color: #142238; font: 1rem/1.55 "Pretendard Variable", Pretendard, system-ui, sans-serif; }
+    main { width: min(100% - 2rem, 64rem); margin: 2rem auto; }
+    h1, p { margin: 0; }
+    h1 { font-size: clamp(1.5rem, 4vw, 2rem); }
+    header { margin-bottom: 1.25rem; }
+    header p, .hint { color: #47566c; }
+    .hint { margin: 0.45rem 0; font-size: 0.9rem; }
+    .layout { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 1rem; align-items: start; }
+    input, button { font: inherit; }
+    input::file-selector-button { font: inherit; }
+    input[type="text"], input[type="search"] { width: 100%; padding: 0.45rem 0.65rem; border: 1px solid #8293aa; border-radius: 0.4rem; }
+    input[type="file"] { display: block; width: 100%; margin-top: 0.4rem; }
+    label { font-weight: 600; }
+    label + input { margin-top: 0.3rem; }
+    details { margin-bottom: 0.75rem; }
+    summary { cursor: pointer; color: #164da4; }
+    .panel { margin-bottom: 1rem; padding: 1.1rem; border: 1px solid #d5dfec; border-radius: 0.8rem; background: #fff; }
+    .panel > summary { color: #142238; font-size: 1.15rem; font-weight: 700; }
+    .panel[open] > summary { margin-bottom: 0.75rem; }
+    ul { padding: 0; margin: 0; list-style: none; }
+    #company-results, #favorite-list { max-height: 22rem; overflow-y: auto; }
+    .favorite-select-all { display: flex; align-items: center; gap: 0.45rem; padding-bottom: 0.45rem; border-bottom: 1px solid #e5ebf3; }
+    li { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 0.45rem; padding: 0.5rem 0; border-bottom: 1px solid #e5ebf3; }
+    li:last-child { border-bottom: 0; }
+    li label { display: flex; align-items: baseline; gap: 0.45rem; }
+    li small { margin-left: 0.35rem; color: #47566c; font-weight: 400; }
+    .actions { display: flex; gap: 0.4rem; align-items: center; flex-wrap: wrap; }
+    button, .compact-action { padding: 0.3rem 0.6rem; border: 1px solid #8293aa; border-radius: 0.4rem; background: #fff; color: #164da4; cursor: pointer; }
+    .compact-action, #group-form button, #group-list button { display: inline-flex; align-items: center; justify-content: center; min-height: 1.5rem; padding: 0.15rem 0.4rem; border-radius: 0.3rem; font-size: 0.78rem; line-height: 1.2; white-space: nowrap; text-decoration: none; }
+    button.is-favorite { background: #eef4ff; border-color: #164da4; }
+    button:disabled { opacity: 0.55; cursor: default; }
+    button.primary { width: 100%; margin-top: 0.75rem; background: #164da4; color: #fff; border-color: #164da4; font-weight: 700; padding: 0.55rem; }
+    a { color: #164da4; }
+    :focus-visible { outline: 3px solid #246bd0; outline-offset: 2px; }
+    #group-form { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 0.4rem; align-items: end; margin: 0.6rem 0; }
+    #group-form label { grid-column: 1 / -1; }
+    #group-form input { margin: 0; }
+    #group-form button { align-self: center; }
+    #notice { min-height: 1.55em; margin-top: 0.5rem; }
+    @media (max-width: 45rem) { .layout { grid-template-columns: 1fr; } }
+  </style>
+</head>
+<body>
+  <main>
+    <header>
+      <h1>DART 공시 검색</h1>
+      <p>회사를 골라 DART 공식 검색 결과를 회사별 새 탭에서 엽니다.</p>
+    </header>
+    <div class="layout">
+      <div>
+        <details class="panel" open>
+          <summary>회사 찾기</summary>
+          <details>
+            <summary>다른 회사 목록 불러오기</summary>
+            <p class="hint"><a href="https://opendart.fss.or.kr/guide/detail.do?apiGrpCd=DS001&amp;apiId=2019018" target="_blank" rel="noopener">OpenDART</a>에서 받은 ZIP의 압축을 풀고 <strong>CORPCODE.xml</strong>을 선택하세요. 이 페이지에서 파일을 읽습니다.</p>
+            <label for="catalog-file">회사 고유번호 파일</label>
+            <input id="catalog-file" type="file" accept=".xml,application/xml,text/xml">
+            <p id="catalog-status" class="hint" role="status"></p>
+          </details>
+          <label for="company-query">회사명 또는 종목코드</label>
+          <input id="company-query" type="search" placeholder="예: 투자증권" autocomplete="off">
+          <p id="search-status" class="hint" role="status"></p>
+          <ul id="company-results" aria-label="회사 검색 결과"></ul>
+        </details>
+        <details class="panel" open>
+          <summary>즐겨찾기 <span id="favorite-count">0</span>개</summary>
+          <label class="favorite-select-all" for="select-all-favorites">
+            <input id="select-all-favorites" type="checkbox" aria-controls="favorite-list" disabled> 즐겨찾기 전체 선택
+          </label>
+          <ul id="favorite-list"></ul>
+        </details>
+      </div>
+      <div>
+        <details class="panel" open>
+          <summary>선택한 회사 <span id="selection-count">0</span>개</summary>
+          <ul id="selection-list"></ul>
+          <form id="disclosure-search" action="https://dart.fss.or.kr/dsab007/main.do" method="get" target="_blank" rel="noopener">
+            <input type="hidden" name="option" value="corp">
+            <input type="hidden" name="autoSearch" value="Y">
+            <input type="hidden" name="autoSearchCorp" value="Y">
+            <input type="hidden" name="textCrpCik">
+            <input type="hidden" name="textCrpNm">
+            <input type="hidden" name="reportNamePopYn" value="N">
+            <input type="hidden" name="finalReport" value="recent">
+            <label for="report-name">보고서명 (선택)</label>
+            <input id="report-name" name="reportName" type="text" placeholder="예: 주주" maxlength="100">
+            <button id="open-selected" class="primary" type="submit" aria-describedby="batch-status" disabled>DART 공시 검색</button>
+          </form>
+          <p id="batch-status" class="hint" role="status"></p>
+        </details>
+        <details class="panel" open>
+          <summary>그룹</summary>
+          <p class="hint">현재 선택을 저장하고 필요할 때 그룹의 회사를 한 번에 추가합니다.</p>
+          <form id="group-form">
+            <label for="group-name">그룹 이름</label>
+            <input id="group-name" type="text" maxlength="40" required>
+            <button id="save-group" type="submit" disabled>선택 저장</button>
+          </form>
+          <ul id="group-list"></ul>
+        </details>
+        <p id="notice" class="hint" role="status"></p>
+      </div>
+    </div>
+    <noscript><p>회사 선택과 그룹 기능을 사용하려면 브라우저에서 자바스크립트를 켜 주세요.</p></noscript>
+  </main>
+
+  <script src="dart-company-codes.js"></script>
+  <script>
+    const starterCompanies = [
+      { code: '00296290', name: '키움증권', stock: '039490' },
+      { code: '00120182', name: 'NH투자증권', stock: '005940' },
+      { code: '00104856', name: '삼성증권', stock: '016360' },
+      { code: '00111722', name: '미래에셋증권', stock: '006800' },
+      { code: '00160144', name: '한국투자증권', stock: '' },
+      { code: '00138321', name: '신한투자증권', stock: '' },
+      { code: '00113465', name: '하나증권', stock: '' },
+      { code: '00137997', name: '현대차증권', stock: '001500' },
+      { code: '00126380', name: '삼성전자', stock: '005930' },
+      { code: '00164779', name: 'SK하이닉스', stock: '000660' },
+    ];
+    const byId = (id) => document.getElementById(id);
+    const storageKey = 'dart-search-v3-saved';
+    const selected = new Map();
+    // KOFIA securities members with a verified code in the bundled DART snapshot.
+    const securitiesNames = new Map([
+      ['00115694', 'DB증권'],
+      ['00692537', 'DS투자증권'],
+      ['00164876', 'KB증권'],
+      ['00120182', 'NH투자증권'],
+      ['00775900', '골드만삭스증권 서울지점'],
+      ['00113359', '교보증권'],
+      ['00251349', '넥스트증권'],
+      ['00825968', '노무라금융투자'],
+      ['00156859', '다올투자증권'],
+      ['00929857', '다이와증권캐피탈마켓코리아'],
+      ['00110893', '대신증권'],
+      ['00380766', '도이치증권'],
+      ['00323549', '리딩투자증권'],
+      ['00586041', '맥쿼리증권'],
+      ['00163682', '메리츠증권'],
+      ['00391267', '메릴린치인터내셔날엘엘씨증권 서울지점'],
+      ['00383213', '모간스탠리인터내셔날증권 서울지점'],
+      ['00111722', '미래에셋증권'],
+      ['00123772', '부국증권'],
+      ['00251400', '비엔케이투자증권'],
+      ['00502182', '비엔피파리바증권'],
+      ['00104856', '삼성증권'],
+      ['00112059', '상상인증권'],
+      ['00136721', '신영증권'],
+      ['00138321', '신한투자증권'],
+      ['01533514', '씨지에스 인터내셔널증권 홍콩 한국지점'],
+      ['00243508', '씨티그룹글로벌마켓증권'],
+      ['00460549', '씨틱코리아증권'],
+      ['00684918', '아이비케이투자증권'],
+      ['00148665', '아이엠증권'],
+      ['00131850', '에스케이증권'],
+      ['00330424', '엘에스증권'],
+      ['01015364', '우리투자증권'],
+      ['00585857', '유비에스증권리미티드 서울지점'],
+      ['00117601', '유안타증권'],
+      ['00131054', '유진투자증권'],
+      ['00145190', '유화증권'],
+      ['00426466', '제이피모간증권 서울지점'],
+      ['00762146', '카카오페이증권'],
+      ['00418519', '케이아이디비채권중개'],
+      ['00537559', '케이알투자증권'],
+      ['00684972', '케이프투자증권'],
+      ['00304915', '코리아에셋투자증권'],
+      ['00373261', '크레디 아그리콜 아시아 증권 서울지점'],
+      ['00296290', '키움증권'],
+      ['01527984', '토스증권'],
+      ['00113465', '하나증권'],
+      ['00685704', '한국스탠다드차타드증권'],
+      ['01541595', '한국아이엠씨증권'],
+      ['00982379', '한국에스지증권'],
+      ['00160144', '한국투자증권'],
+      ['00162416', '한양증권'],
+      ['00148610', '한화투자증권'],
+      ['00137997', '현대차증권'],
+      ['00425810', '홍콩상하이증권 서울지점'],
+      ['00380836', '흥국증권'],
+    ]);
+    const bundledCompanies = typeof dartCompanyRows === 'undefined' ? null : dartCompanyRows.map(([code, name, stock]) => ({ code, name, stock }));
+    let catalog = bundledCompanies ?? starterCompanies;
+    let searchNames = indexNames(catalog);
+
+    function companyMap(companies) {
+      const map = new Map();
+      if (!Array.isArray(companies)) return map;
+      for (const item of companies) {
+        if (typeof item?.code === 'string' && /^\d{8}$/.test(item.code) && typeof item.name === 'string' && item.name.trim()) {
+          map.set(item.code, { code: item.code, name: item.name.trim(), stock: typeof item.stock === 'string' ? item.stock.trim() : '' });
+        }
+      }
+      return map;
+    }
+
+    function loadSaved() {
+      try {
+        return JSON.parse(localStorage.getItem(storageKey)) ?? {};
+      } catch {
+        return {};
+      }
+    }
+
+    const saved = loadSaved();
+    const favorites = companyMap(saved.favorites);
+    const groups = new Map();
+    let securitiesFavoritesSeeded = saved.securitiesFavoritesSeeded === true;
+    for (const group of Array.isArray(saved.groups) ? saved.groups : []) {
+      const companies = [...companyMap(group?.companies).values()];
+      if (typeof group?.name === 'string' && group.name.trim() && companies.length) {
+        groups.set(group.name.trim(), companies);
+      }
+    }
+
+    function save(message = '') {
+      try {
+        localStorage.setItem(storageKey, JSON.stringify({
+          favorites: [...favorites.values()],
+          groups: [...groups].map(([name, companies]) => ({ name, companies })),
+          securitiesFavoritesSeeded,
+        }));
+        byId('notice').textContent = message;
+      } catch {
+        byId('notice').textContent = '브라우저에 저장할 수 없어 현재 탭에서만 적용됩니다.';
+      }
+    }
+
+    function seedSecuritiesFavorites() {
+      if (!bundledCompanies || securitiesFavoritesSeeded) return;
+      const companies = new Map(bundledCompanies.filter(({ code }) => securitiesNames.has(code)).map((company) => [company.code, company]));
+      for (const code of securitiesNames.keys()) {
+        if (!favorites.has(code) && companies.has(code)) favorites.set(code, companies.get(code));
+      }
+      securitiesFavoritesSeeded = true;
+      save();
+    }
+
+    function button(text, action) {
+      const control = document.createElement('button');
+      control.type = 'button';
+      control.textContent = text;
+      control.addEventListener('click', action);
+      return control;
+    }
+
+    function showList(id, items, empty, makeRow) {
+      const list = byId(id);
+      if (items.length) {
+        list.replaceChildren(...items.map(makeRow));
+      } else {
+        const item = document.createElement('li');
+        item.className = 'hint';
+        item.textContent = empty;
+        list.replaceChildren(item);
+      }
+    }
+
+    function companyRow(company) {
+      const name = displayName(company);
+      const item = document.createElement('li');
+      const label = document.createElement('label');
+      const checkbox = document.createElement('input');
+      checkbox.type = 'checkbox';
+      checkbox.className = 'company-choice';
+      checkbox.value = company.code;
+      checkbox.checked = selected.has(company.code);
+      checkbox.addEventListener('change', () => {
+        if (checkbox.checked) selected.set(company.code, company);
+        else selected.delete(company.code);
+        renderSelection();
+      });
+      const description = document.createElement('span');
+      description.textContent = name;
+      const code = document.createElement('small');
+      code.textContent = [company.stock, `DART ${company.code}`].filter(Boolean).join(' · ');
+      description.append(code);
+      label.append(checkbox, description);
+      const favoriteButton = button('', () => {
+        if (favorites.has(company.code)) {
+          favorites.delete(company.code);
+          save(`${name}을(를) 즐겨찾기에서 제거했습니다.`);
+        } else {
+          favorites.set(company.code, company);
+          save(`${name}을(를) 즐겨찾기에 추가했습니다.`);
+        }
+        renderFavorites();
+        for (const control of document.querySelectorAll('.favorite-toggle')) {
+          if (control.dataset.code === company.code) updateFavoriteButton(control, company);
+        }
+      });
+      favoriteButton.className = 'favorite-toggle compact-action';
+      favoriteButton.dataset.code = company.code;
+      updateFavoriteButton(favoriteButton, company);
+      item.append(label, favoriteButton);
+      return item;
+    }
+
+    function updateFavoriteButton(control, company) {
+      const isFavorite = favorites.has(company.code);
+      control.textContent = isFavorite ? '즐겨찾기에서 제거' : '즐겨찾기 추가';
+      control.classList.toggle('is-favorite', isFavorite);
+      control.setAttribute('aria-label', `${displayName(company)} ${control.textContent}`);
+    }
+
+    function displayName(company) {
+      return securitiesNames.get(company.code) ?? company.name;
+    }
+
+    function normalize(value) {
+      return value.normalize('NFKC').replace(/\s+/g, '').toLowerCase();
+    }
+
+    function indexNames(companies) {
+      return companies.map((company) => [normalize(displayName(company)), normalize(company.name)]);
+    }
+
+    function renderSearch() {
+      const query = normalize(byId('company-query').value);
+      const exact = [];
+      const partial = [];
+      let matchCount = catalog.length;
+      if (query) {
+        matchCount = 0;
+        for (let i = 0; i < catalog.length; i++) {
+          const company = catalog[i];
+          const [name, originalName] = searchNames[i];
+          const stock = company.stock.toLowerCase();
+          const exactMatch = name === query || originalName === query || stock === query || company.code === query;
+          if (!exactMatch && !name.includes(query) && !originalName.includes(query) &&
+              !stock.includes(query) && !company.code.includes(query)) continue;
+          matchCount++;
+          const results = exactMatch ? exact : partial;
+          if (results.length < 50) results.push(company);
+        }
+      }
+      let source = '불러온 회사 목록';
+      if (catalog === starterCompanies) source = '목록 파일 없음 · 예시 회사';
+      else if (catalog === bundledCompanies) source = `기본 회사 목록 (${dartCompanyCatalogDate})`;
+      byId('search-status').textContent = `${source} ${catalog.length.toLocaleString()}개 · 일치 ${matchCount.toLocaleString()}개` +
+        (matchCount > 50 ? ' · 처음 50개 표시' : '');
+      const results = query ? [...exact, ...partial] : catalog;
+      showList('company-results', results.slice(0, 50), '일치하는 회사가 없습니다.', companyRow);
+    }
+
+    function renderFavorites() {
+      byId('favorite-count').textContent = favorites.size;
+      showList('favorite-list', [...favorites.values()], '저장한 회사가 없습니다.', companyRow);
+      updateFavoriteSelection();
+    }
+
+    function updateFavoriteSelection() {
+      const toggle = byId('select-all-favorites');
+      const checkedCount = [...favorites.keys()].filter((code) => selected.has(code)).length;
+      toggle.disabled = favorites.size === 0;
+      toggle.checked = favorites.size > 0 && checkedCount === favorites.size;
+      toggle.indeterminate = checkedCount > 0 && checkedCount < favorites.size;
+    }
+
+    const searchForm = byId('disclosure-search');
+    let batch = null;
+
+    function disclosureUrl(company) {
+      const fields = new FormData(searchForm);
+      fields.set('textCrpCik', company.code);
+      fields.set('textCrpNm', company.name);
+      fields.set('reportName', byId('report-name').value.trim());
+      const url = new URL(searchForm.action);
+      url.search = new URLSearchParams(fields);
+      return url.href;
+    }
+
+    function batchKey() {
+      return JSON.stringify([byId('report-name').value.trim(), ...selected.keys()]);
+    }
+
+    function renderBatchStatus() {
+      const remaining = batch?.pending.size ?? 0;
+      byId('open-selected').textContent = remaining ? `남은 ${remaining}개 회사 탭 열기` : 'DART 공시 검색';
+      const status = byId('batch-status');
+      if (!batch) {
+        status.textContent = '';
+      } else if (remaining) {
+        status.textContent = `${batch.total}개 중 ${batch.total - remaining}개 탭을 열었습니다. 팝업이 차단되면 주소창에서 이 페이지의 팝업을 허용한 뒤 남은 탭을 열 수 있습니다.`;
+      } else {
+        status.textContent = `${batch.total}개 회사의 DART 탭을 열었습니다.`;
+      }
+    }
+
+    function clearBatchIfChanged() {
+      if (batch && batch.key !== batchKey()) {
+        batch = null;
+        renderBatchStatus();
+      }
+    }
+
+    function renderSelection() {
+      clearBatchIfChanged();
+      byId('selection-count').textContent = selected.size;
+      byId('open-selected').disabled = selected.size === 0;
+      byId('save-group').disabled = selected.size === 0;
+      for (const control of document.querySelectorAll('.company-choice')) {
+        control.checked = selected.has(control.value);
+      }
+      updateFavoriteSelection();
+      showList('selection-list', [...selected.values()], '검색할 회사를 선택하세요.', (company) => {
+        const item = document.createElement('li');
+        const name = document.createElement('span');
+        name.textContent = displayName(company);
+        const actions = document.createElement('div');
+        actions.className = 'actions';
+        const link = document.createElement('a');
+        link.className = 'company-link compact-action';
+        link.dataset.code = company.code;
+        link.href = disclosureUrl(company);
+        link.target = '_blank';
+        link.rel = 'noopener';
+        link.textContent = 'DART 열기';
+        link.setAttribute('aria-label', `${displayName(company)} DART 열기`);
+        link.addEventListener('click', () => {
+          if (batch?.pending.delete(company.code)) renderBatchStatus();
+        });
+        const remove = button('제외', () => {
+          selected.delete(company.code);
+          renderSelection();
+        });
+        remove.classList.add('compact-action');
+        actions.append(link, remove);
+        item.append(name, actions);
+        return item;
+      });
+    }
+
+    function renderGroups() {
+      showList('group-list', [...groups], '저장한 그룹이 없습니다.', ([name, companies]) => {
+        const item = document.createElement('li');
+        const description = document.createElement('span');
+        description.textContent = `${name} · ${companies.length}개`;
+        description.title = companies.map(displayName).join(', ');
+        const actions = document.createElement('div');
+        actions.className = 'actions';
+        actions.append(button('선택에 추가', () => {
+          const before = selected.size;
+          for (const company of companies) selected.set(company.code, company);
+          renderSelection();
+          const added = selected.size - before;
+          byId('notice').textContent = added ? `그룹에서 ${added}개 회사를 추가했습니다.` : '그룹의 회사가 모두 선택되어 있습니다.';
+        }), button('삭제', () => {
+          groups.delete(name);
+          save(`${name} 그룹을 삭제했습니다.`);
+          renderGroups();
+        }));
+        item.append(description, actions);
+        return item;
+      });
+    }
+
+    byId('group-form').addEventListener('submit', (event) => {
+      event.preventDefault();
+      const name = byId('group-name').value.trim();
+      if (!name || !selected.size) return;
+      if (groups.has(name)) {
+        byId('notice').textContent = '같은 이름의 그룹이 있습니다.';
+        return;
+      }
+      groups.set(name, [...selected.values()]);
+      save(`${name} 그룹을 저장했습니다.`);
+      byId('group-name').value = '';
+      renderGroups();
+    });
+
+    searchForm.addEventListener('submit', (event) => {
+      byId('report-name').value = byId('report-name').value.trim();
+      clearBatchIfChanged();
+      if (selected.size === 1) {
+        const [company] = selected.values();
+        searchForm.elements.textCrpCik.value = company.code;
+        searchForm.elements.textCrpNm.value = company.name;
+        return;
+      }
+      event.preventDefault();
+      if (!selected.size) return;
+      if (!batch?.pending.size) {
+        batch = {
+          key: batchKey(),
+          total: selected.size,
+          pending: new Map([...selected.values()].map((company) => [company.code, disclosureUrl(company)])),
+        };
+      }
+      for (const [code, url] of batch.pending) {
+        const tab = window.open('about:blank', '_blank');
+        if (!tab) break;
+        tab.opener = null;
+        tab.location.replace(url);
+        batch.pending.delete(code);
+      }
+      renderBatchStatus();
+    });
+
+    byId('select-all-favorites').addEventListener('change', (event) => {
+      for (const [code, company] of favorites) {
+        if (event.target.checked) selected.set(code, company);
+        else selected.delete(code);
+      }
+      renderSelection();
+    });
+
+    byId('company-query').addEventListener('input', renderSearch);
+    byId('report-name').addEventListener('input', () => {
+      clearBatchIfChanged();
+      for (const link of document.querySelectorAll('.company-link')) {
+        link.href = disclosureUrl(selected.get(link.dataset.code));
+      }
+    });
+
+    byId('catalog-file').addEventListener('change', async (event) => {
+      const [file] = event.target.files;
+      if (!file) return;
+      const status = byId('catalog-status');
+      status.textContent = '회사 목록을 읽는 중입니다.';
+      try {
+        const xml = new DOMParser().parseFromString(await file.text(), 'application/xml');
+        if (event.target.files[0] !== file) return;
+        if (xml.querySelector('parsererror')) throw new Error('Invalid XML');
+        const companies = [...xml.querySelectorAll('result > list')].map((row) => ({
+          code: row.querySelector('corp_code')?.textContent.trim(),
+          name: row.querySelector('corp_name')?.textContent.trim(),
+          stock: row.querySelector('stock_code')?.textContent.trim(),
+        }));
+        const imported = companyMap(companies);
+        if (!imported.size) throw new Error('Missing companies');
+        catalog = [...imported.values()];
+        searchNames = indexNames(catalog);
+        renderSearch();
+        status.textContent = `${catalog.length.toLocaleString()}개 회사를 불러왔습니다.`;
+      } catch {
+        if (event.target.files[0] !== file) return;
+        status.textContent = '압축을 푼 OpenDART CORPCODE.xml 파일인지 확인해 주세요.';
+      }
+    });
+
+    seedSecuritiesFavorites();
+    renderSearch();
+    renderFavorites();
+    renderSelection();
+    renderGroups();
+  </script>
+</body>
+</html>
