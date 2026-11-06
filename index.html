@@ -62,7 +62,7 @@
           <label for="company-query">회사명 또는 종목코드</label>
           <input id="company-query" type="search" placeholder="예: 투자증권" autocomplete="off">
           <p id="search-status" class="hint" role="status"></p>
-          <ul id="company-results" aria-label="회사 검색 결과"></ul>
+          <ul id="company-results" aria-label="회사 검색 결과" tabindex="0"></ul>
         </details>
         <details class="panel" open>
           <summary>즐겨찾기 <span id="favorite-count">0</span>개</summary>
@@ -193,6 +193,10 @@
     const bundledCompanies = typeof dartCompanyRows === 'undefined' ? null : dartCompanyRows.map(([code, name, stock]) => ({ code, name, stock }));
     const catalog = bundledCompanies ?? starterCompanies;
     const searchNames = indexNames(catalog);
+    const companyResults = byId('company-results');
+    const searchPageSize = 50;
+    let searchMatches = [];
+    let shownSearchCount = 0;
 
     function companyMap(companies) {
       const map = new Map();
@@ -278,7 +282,10 @@
         editToken = typeof issuedToken === 'string' && issuedToken ? issuedToken : null;
         sharedReady = Boolean(editToken);
         byId('group-name').disabled = !canEditLists();
-        renderSearch();
+        for (const control of companyResults.querySelectorAll('.favorite-toggle')) {
+          control.disabled = !canEditLists();
+          updateFavoriteButton(control);
+        }
         renderFavorites();
         renderSelection();
         renderGroups();
@@ -412,22 +419,23 @@
         }
         renderFavorites();
         for (const control of document.querySelectorAll('.favorite-toggle')) {
-          if (control.dataset.code === company.code) updateFavoriteButton(control, company);
+          if (control.dataset.code === company.code) updateFavoriteButton(control);
         }
       });
       favoriteButton.className = 'favorite-toggle compact-action';
       favoriteButton.dataset.code = company.code;
+      favoriteButton.dataset.companyName = name;
       favoriteButton.disabled = !canEditLists();
-      updateFavoriteButton(favoriteButton, company);
+      updateFavoriteButton(favoriteButton);
       item.append(favoriteButton);
       return item;
     }
 
-    function updateFavoriteButton(control, company) {
-      const isFavorite = favorites.has(company.code);
+    function updateFavoriteButton(control) {
+      const isFavorite = favorites.has(control.dataset.code);
       control.textContent = isFavorite ? '즐겨찾기에서 제거' : '즐겨찾기 추가';
       control.classList.toggle('is-favorite', isFavorite);
-      control.setAttribute('aria-label', `${displayName(company)} ${control.textContent}`);
+      control.setAttribute('aria-label', `${control.dataset.companyName} ${control.textContent}`);
     }
 
     function displayName(company) {
@@ -442,30 +450,37 @@
       return companies.map((company) => [normalize(displayName(company)), normalize(company.name)]);
     }
 
-    function renderSearch() {
-      const query = normalize(byId('company-query').value);
+    function findCompanies(query) {
+      if (!query) return catalog;
       const exact = [];
       const partial = [];
-      let matchCount = catalog.length;
-      if (query) {
-        matchCount = 0;
-        for (let i = 0; i < catalog.length; i++) {
-          const company = catalog[i];
-          const [name, originalName] = searchNames[i];
-          const stock = company.stock.toLowerCase();
-          const exactMatch = name === query || originalName === query || stock === query || company.code === query;
-          if (!exactMatch && !name.includes(query) && !originalName.includes(query) &&
-              !stock.includes(query) && !company.code.includes(query)) continue;
-          matchCount++;
-          const results = exactMatch ? exact : partial;
-          if (results.length < 50) results.push(company);
-        }
+      for (let i = 0; i < catalog.length; i++) {
+        const company = catalog[i];
+        const [name, originalName] = searchNames[i];
+        const stock = company.stock.toLowerCase();
+        const exactMatch = name === query || originalName === query || stock === query || company.code === query;
+        if (!exactMatch && !name.includes(query) && !originalName.includes(query) &&
+            !stock.includes(query) && !company.code.includes(query)) continue;
+        const results = exactMatch ? exact : partial;
+        results.push(company);
       }
+      return exact.concat(partial);
+    }
+
+    function renderSearchStatus() {
       const source = bundledCompanies ? `기본 회사 목록 (${dartCompanyCatalogDate})` : '목록 파일 없음 · 예시 회사';
-      byId('search-status').textContent = `${source} ${catalog.length.toLocaleString()}개 · 일치 ${matchCount.toLocaleString()}개` +
-        (matchCount > 50 ? ' · 처음 50개 표시' : '');
-      const results = query ? [...exact, ...partial] : catalog;
-      showList('company-results', results.slice(0, 50), '일치하는 회사가 없습니다.', companyRow);
+      const more = shownSearchCount < searchMatches.length
+        ? ` · ${shownSearchCount.toLocaleString()}개 표시 · 아래로 스크롤하면 더 보기` : '';
+      byId('search-status').textContent = `${source} ${catalog.length.toLocaleString()}개 · 일치 ${searchMatches.length.toLocaleString()}개${more}`;
+    }
+
+    function renderSearch() {
+      searchMatches = findCompanies(normalize(byId('company-query').value));
+      const firstPage = searchMatches.slice(0, searchPageSize);
+      shownSearchCount = firstPage.length;
+      showList('company-results', firstPage, '일치하는 회사가 없습니다.', companyRow);
+      companyResults.scrollTop = 0;
+      renderSearchStatus();
     }
 
     function renderFavorites() {
@@ -642,6 +657,14 @@
     });
 
     byId('company-query').addEventListener('input', renderSearch);
+    companyResults.addEventListener('scroll', () => {
+      if (shownSearchCount === searchMatches.length ||
+          companyResults.scrollTop + companyResults.clientHeight < companyResults.scrollHeight - 1) return;
+      const nextPage = searchMatches.slice(shownSearchCount, shownSearchCount + searchPageSize);
+      companyResults.append(...nextPage.map(companyRow));
+      shownSearchCount += nextPage.length;
+      renderSearchStatus();
+    }, { passive: true });
     byId('report-name').addEventListener('input', () => {
       clearBatchIfChanged();
       for (const link of document.querySelectorAll('.company-link')) {
